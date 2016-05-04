@@ -249,7 +249,16 @@ public abstract class AppCompatDelegate {
     public abstract MenuInflater getMenuInflater();
 
     /**
-     * Should be called from {@link Activity#onCreate Activity.onCreate()}
+     * Should be called from {@link Activity#onCreate Activity.onCreate()}.
+     *
+     * <p>This should be called before {@code super.onCreate()} as so:</p>
+     * <pre class="prettyprint">
+     * protected void onCreate(Bundle savedInstanceState) {
+     *     getDelegate().onCreate(savedInstanceState);
+     *     super.onCreate(savedInstanceState);
+     *     // ...
+     * }
+     * </pre>
      */
     public abstract void onCreate(Bundle savedInstanceState);
 
@@ -395,4 +404,31 @@ public abstract class AppCompatDelegate {
      */
     public abstract boolean isHandleNativeActionModesEnabled();
 
+    /**
+     * Allow AppCompat to apply the {@code night} and {@code notnight} resource qualifiers.
+     *
+     * <p>Doing this enables the
+     * {@link R.style#Theme_AppCompat_DayNight Theme.AppCompat.DayNight}
+     * family of themes to work, using the computed twilight to automatically select a dark or
+     * light theme.</p>
+     *
+     * <p>You can override the night mode using {@link #setNightMode(int)}.</p>
+     *
+     * <p>This only works on devices running
+     * {@link Build.VERSION_CODES#ICE_CREAM_SANDWICH ICE_CREAM_SANDWICH} and above.</p>
+     *
+     * @see #setNightMode(int)
+     */
+    public abstract void applyDayNight();
+
+    /**
+     * Override the night mode used when {@link #applyDayNight()} is called. This method only takes
+     * effect for those situtations where {@link #applyDayNight()} works.
+     *
+     * <p>This needs to be called before {@link #applyDayNight()}. Defaults to
+     * {@link #MODE_NIGHT_AUTO}.</p>
+     *
+     * @see #applyDayNight()
+     */
+    public abstract void setNightMode(@NightMode int mode);
 }

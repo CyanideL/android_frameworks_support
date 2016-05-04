@@ -22,7 +22,7 @@ import android.content.res.TypedArray;
 import android.os.Build;
 import android.support.v7.appcompat.R;
 import android.support.v7.internal.text.AllCapsTransformationMethod;
-import android.support.v7.internal.widget.ThemeUtils;
+import android.support.v7.widget.ThemeUtils;
 import android.util.AttributeSet;
 import android.widget.TextView;
 

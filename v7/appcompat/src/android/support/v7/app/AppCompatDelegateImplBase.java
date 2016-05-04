@@ -54,6 +54,8 @@ abstract class AppCompatDelegateImplBase extends AppCompatDelegate {
     boolean mIsFloating;
     // true if this activity has no title
     boolean mWindowNoTitle;
+    // true if the theme has been read
+    boolean mThemeRead;
 
     private CharSequence mTitle;
 
@@ -111,6 +113,11 @@ abstract class AppCompatDelegateImplBase extends AppCompatDelegate {
     abstract boolean dispatchKeyEvent(KeyEvent event);
 
     abstract boolean onKeyShortcut(int keyCode, KeyEvent event);
+
+    @Override
+    public void setNightMode(@NightMode int mode) {
+        // no-op
+    }
 
     @Override
     public final ActionBarDrawerToggle.Delegate getDrawerToggleDelegate() {
@@ -187,6 +194,11 @@ abstract class AppCompatDelegateImplBase extends AppCompatDelegate {
     public boolean isHandleNativeActionModesEnabled() {
         // Always false pre-v14
         return false;
+    }
+
+    @Override
+    public void applyDayNight() {
+        // no-op on v7
     }
 
     final boolean isDestroyed() {

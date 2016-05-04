@@ -31,6 +31,8 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.support.annotation.NonNull;
 import android.support.v4.app.NavUtils;
+import android.support.v4.os.ParcelableCompat;
+import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.LayoutInflaterCompat;
 import android.support.v4.view.LayoutInflaterFactory;
 import android.support.v4.view.OnApplyWindowInsetsListener;
@@ -52,6 +54,7 @@ import android.support.v7.internal.view.menu.MenuBuilder;
 import android.support.v7.internal.view.menu.MenuPresenter;
 import android.support.v7.internal.view.menu.MenuView;
 import android.support.v7.internal.widget.ActionBarContextView;
+import android.support.v7.internal.widget.AppCompatDrawableManager;
 import android.support.v7.internal.widget.ContentFrameLayout;
 import android.support.v7.internal.widget.DecorContentParent;
 import android.support.v7.internal.widget.FitWindowsViewGroup;
@@ -115,6 +118,8 @@ class AppCompatDelegateImplV7 extends AppCompatDelegateImplBase
     private boolean mClosingActionMenu;
     private PanelFeatureState[] mPanels;
     private PanelFeatureState mPreparedPanel;
+
+    private boolean mLongPressBackDown;
 
     private boolean mInvalidatePanelMenuPosted;
     private int mInvalidatePanelMenuFeatures;
@@ -460,6 +465,16 @@ class AppCompatDelegateImplV7 extends AppCompatDelegateImplBase
         if (decorContent instanceof FrameLayout) {
             ((FrameLayout) decorContent).setForeground(null);
         }
+
+        abcContent.setAttachListener(new ContentFrameLayout.OnAttachListener() {
+            @Override
+            public void onAttachedFromWindow() {}
+
+            @Override
+            public void onDetachedFromWindow() {
+                dismissPopups();
+            }
+        });
 
         return subDecor;
     }
@@ -865,9 +880,17 @@ class AppCompatDelegateImplV7 extends AppCompatDelegateImplBase
                 onKeyUpPanel(Window.FEATURE_OPTIONS_PANEL, event);
                 return true;
             case KeyEvent.KEYCODE_BACK:
+                final boolean wasLongPressBackDown = mLongPressBackDown;
+                mLongPressBackDown = false;
+
                 PanelFeatureState st = getPanelState(Window.FEATURE_OPTIONS_PANEL, false);
                 if (st != null && st.isOpen) {
-                    closePanel(st, true);
+                    if (!wasLongPressBackDown) {
+                        // Certain devices allow opening the options menu via a long press of the
+                        // back button. We should only close the open options menu if it wasn't
+                        // opened via a long press gesture.
+                        closePanel(st, true);
+                    }
                     return true;
                 }
                 if (onBackPressed()) {
@@ -882,7 +905,14 @@ class AppCompatDelegateImplV7 extends AppCompatDelegateImplBase
         switch (keyCode) {
             case KeyEvent.KEYCODE_MENU:
                 onKeyDownPanel(Window.FEATURE_OPTIONS_PANEL, event);
-                // Break, and let this fall through to the original callback
+                // We need to return true here and not let it bubble up to the Window.
+                // For empty menus, PhoneWindow's KEYCODE_BACK handling will steals all events,
+                // not allowing the Activity to call onBackPressed().
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                // Certain devices allow opening the options menu via a long press of the back
+                // button. We keep a record of whether the last event is from a long press.
+                mLongPressBackDown = (event.getFlags() & KeyEvent.FLAG_LONG_PRESS) != 0;
                 break;
         }
 
@@ -1630,6 +1660,31 @@ class AppCompatDelegateImplV7 extends AppCompatDelegateImplBase
         return mSubDecor;
     }
 
+    private void dismissPopups() {
+        if (mDecorContentParent != null) {
+            mDecorContentParent.dismissPopups();
+        }
+
+        if (mActionModePopup != null) {
+            mWindowDecor.removeCallbacks(mShowActionModePopup);
+            if (mActionModePopup.isShowing()) {
+                try {
+                    mActionModePopup.dismiss();
+                } catch (IllegalArgumentException e) {
+                    // Pre-v18, there are times when the Window will remove the popup before us.
+                    // In these cases we need to swallow the resulting exception.
+                }
+            }
+            mActionModePopup = null;
+        }
+        endOnGoingFadeAnimation();
+
+        PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+        if (st != null && st.menu != null) {
+            st.menu.close();
+        }
+    }
+
     /**
      * Clears out internal reference when the action mode is destroyed.
      */
@@ -1924,32 +1979,35 @@ class AppCompatDelegateImplV7 extends AppCompatDelegateImplBase
                 }
             }
 
-            private static SavedState readFromParcel(Parcel source) {
+            private static SavedState readFromParcel(Parcel source, ClassLoader loader) {
                 SavedState savedState = new SavedState();
                 savedState.featureId = source.readInt();
                 savedState.isOpen = source.readInt() == 1;
 
                 if (savedState.isOpen) {
-                    savedState.menuState = source.readBundle();
+                    savedState.menuState = source.readBundle(loader);
                 }
 
                 return savedState;
             }
 
             public static final Parcelable.Creator<SavedState> CREATOR
-                    = new Parcelable.Creator<SavedState>() {
-                public SavedState createFromParcel(Parcel in) {
-                    return readFromParcel(in);
-                }
+                    = ParcelableCompat.newCreator(
+                    new ParcelableCompatCreatorCallbacks<SavedState>() {
+                        @Override
+                        public SavedState createFromParcel(Parcel in, ClassLoader loader) {
+                            return readFromParcel(in, loader);
+                        }
 
-                public SavedState[] newArray(int size) {
-                    return new SavedState[size];
-                }
-            };
+                        @Override
+                        public SavedState[] newArray(int size) {
+                            return new SavedState[size];
+                        }
+                    });
         }
     }
 
-    private class ListMenuDecorView extends FrameLayout {
+    private class ListMenuDecorView extends ContentFrameLayout {
         public ListMenuDecorView(Context context) {
             super(context);
         }
@@ -1976,7 +2034,7 @@ class AppCompatDelegateImplV7 extends AppCompatDelegateImplBase
 
         @Override
         public void setBackgroundResource(int resid) {
-            setBackgroundDrawable(TintManager.getDrawable(getContext(), resid));
+            setBackgroundDrawable(AppCompatDrawableManager.get().getDrawable(getContext(), resid));
         }
 
         private boolean isOutOfBounds(int x, int y) {

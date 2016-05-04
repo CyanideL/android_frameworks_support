@@ -16,14 +16,22 @@
 
 package android.support.v7.app;
 
+import android.app.UiModeManager;
 import android.content.Context;
+import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.os.Build;
 import android.support.v7.internal.view.SupportActionModeWrapper;
 import android.view.ActionMode;
 import android.view.Window;
 
 class AppCompatDelegateImplV14 extends AppCompatDelegateImplV11 {
 
+    private TwilightManager mTwilightManager;
     private boolean mHandleNativeActionModes = true; // defaults to true
+
+    @NightMode
+    private int mNightMode = MODE_NIGHT_AUTO;
 
     AppCompatDelegateImplV14(Context context, Window window, AppCompatCallback callback) {
         super(context, window, callback);
