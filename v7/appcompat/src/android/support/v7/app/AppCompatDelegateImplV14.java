@@ -16,7 +16,9 @@
 
 package android.support.v7.app;
 
+import android.app.Activity;
 import android.app.UiModeManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -29,6 +31,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 import android.os.Build;
 import android.support.v7.view.SupportActionModeWrapper;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.ActionMode;
 import android.view.Window;
@@ -36,6 +39,14 @@ import android.view.Window;
 class AppCompatDelegateImplV14 extends AppCompatDelegateImplV11 {
 
     private TwilightManager mTwilightManager;
+
+    private static final String KEY_LOCAL_NIGHT_MODE = "appcompat:local_night_mode";
+
+    private static final boolean FLUSH_RESOURCE_CACHES_ON_NIGHT_CHANGE = true;
+
+    @NightMode
+    private int mLocalNightMode = MODE_NIGHT_UNSPECIFIED;
+    private boolean mApplyDayNightCalled;
     private boolean mHandleNativeActionModes = true; // defaults to true
 
     @NightMode
@@ -123,6 +134,42 @@ class AppCompatDelegateImplV14 extends AppCompatDelegateImplV11 {
         if (currentNightMode != newNightMode) {
             conf.uiMode = (conf.uiMode & ~Configuration.UI_MODE_NIGHT_MASK) | newNightMode;
             res.updateConfiguration(conf, res.getDisplayMetrics());
+            if (shouldRecreateOnNightModeChange()) {
+                if (DEBUG) {
+                    Log.d(TAG, "applyNightMode() | Night mode changed, recreating Activity");
+                }
+                // If we've already been created, we need to recreate the Activity for the
+                // mode to be applied
+                final Activity activity = (Activity) mContext;
+                activity.recreate();
+            } else {
+                if (DEBUG) {
+                    Log.d(TAG, "applyNightMode() | Night mode changed, updating configuration");
+                }
+                final Configuration config = new Configuration(conf);
+                final DisplayMetrics metrics = res.getDisplayMetrics();
+                final float originalFontScale = config.fontScale;
+
+                // Update the UI Mode to reflect the new night mode
+                config.uiMode = newNightMode | (config.uiMode & ~Configuration.UI_MODE_NIGHT_MASK);
+                if (FLUSH_RESOURCE_CACHES_ON_NIGHT_CHANGE) {
+                    // Set a fake font scale value to flush any resource caches
+                    config.fontScale = originalFontScale * 2;
+                }
+                // Now update the configuration
+                res.updateConfiguration(config, metrics);
+
+                if (FLUSH_RESOURCE_CACHES_ON_NIGHT_CHANGE) {
+                    // If we're flushing the resources cache, revert back to the original
+                    // font scale value
+                    config.fontScale = originalFontScale;
+                    res.updateConfiguration(config, metrics);
+                }
+            }
+        } else {
+            if (DEBUG) {
+                Log.d(TAG, "applyNightMode() | Night mode has not changed. Skipping");
+            }
         }
     }
 
@@ -147,6 +194,27 @@ class AppCompatDelegateImplV14 extends AppCompatDelegateImplV11 {
             mTwilightManager = new TwilightManager(mContext);
         }*/
         return mTwilightManager;
+    }
+
+    private boolean shouldRecreateOnNightModeChange() {
+        if (mApplyDayNightCalled && mContext instanceof Activity) {
+            // If we've already applyDayNight() (via setTheme), we need to check if the
+            // Activity has configChanges set to handle uiMode changes
+            final PackageManager pm = mContext.getPackageManager();
+            try {
+                final ActivityInfo info = pm.getActivityInfo(
+                        new ComponentName(mContext, mContext.getClass()), 0);
+                // We should return true (to recreate) if configChanges does not want to
+                // handle uiMode
+                return (info.configChanges & ActivityInfo.CONFIG_UI_MODE) == 0;
+            } catch (PackageManager.NameNotFoundException e) {
+                // This shouldn't happen but let's not crash because of it, we'll just log and
+                // return true (since most apps will do that anyway)
+                Log.d(TAG, "Exception while getting ActivityInfo", e);
+                return true;
+            }
+        }
+        return false;
     }
 
     class AppCompatWindowCallbackV14 extends AppCompatWindowCallbackBase {
